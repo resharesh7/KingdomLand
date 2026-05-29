@@ -1,0 +1,8 @@
+{
+  "name": "KingdomLand",
+  "description": "Advanced data analytics, lead filtering, map-based property visualization, secured document vault, and automated email outreach for land investors & wholesale field agents.",
+  "requestFramePermissions": [
+    "geolocation"
+  ],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
