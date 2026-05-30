@@ -31,6 +31,9 @@ export interface UserProfile {
   trialDaysLeft: number;
   isTrial: boolean;
   createdAt: string;
+  isActive?: boolean;
+  cardInfo?: { number: string; expiry: string; cvc: string; name: string };
+  creditsBought?: number;
 }
 
 export interface PostcardOrder {

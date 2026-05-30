@@ -60,7 +60,7 @@ export default function PostcardsTab({
   const currentPlan = currentUser?.plan || 'Pro';
   const postcardRate = getPostcardRate(postcardSize, currentPlan);
 
-  // Send physical postcard and deduct credit bounds limit
+  // Send physical postcard and deduct credit bounds limit with real server-side REST persistence
   const handleDispatchPhysicalPostcard = () => {
     if (!currentUser) {
       onOpenSignUp();
@@ -70,24 +70,15 @@ export default function PostcardsTab({
 
     const rate = getPostcardRate(postcardSize, currentUser.plan);
     
+    // Calculate if replenishment is required
+    let replenishmentRefill = 0;
     if (currentUser.marketingCredits < rate) {
       if (currentUser.autoReloadEnabled) {
-        // Automatically replenish $50 at $0 limit
-        setCurrentUser({
-          ...currentUser,
-          marketingCredits: Number(((currentUser.marketingCredits + 50.00) - rate).toFixed(2))
-        });
-        
-        triggerNotification("🔄 Replenished Balance & Dispatched!", `Sent USPS ${postcardSize} mailer! Balance hit $0, auto-reloaded +$50.00 flat rates applied: ${(rate * 100).toFixed(0)}¢.`);
+        replenishmentRefill = 50.00;
       } else {
-        triggerNotification("Insufficient Mail Credits", `Please buy credits or toggle Auto-Reload within the Credit panel. Postcard cost: ${(rate * 100).toFixed(0)}¢.`);
+        triggerNotification("Insufficient Mail Credits", `Please buy credits or toggle Auto-Reload. Postcard cost: ${(rate * 100).toFixed(0)}¢.`);
         return;
       }
-    } else {
-      setCurrentUser({
-        ...currentUser,
-        marketingCredits: Number((currentUser.marketingCredits - rate).toFixed(2))
-      });
     }
 
     const newOrder: PostcardOrder = {
@@ -101,17 +92,93 @@ export default function PostcardsTab({
       templateName: postcardHeadline
     };
 
-    setPostcardOrders([newOrder, ...postcardOrders]);
-    triggerNotification("📬 Postcard routed to USPS printer!", `Dispatched physical postcard to ${activeProperty.ownerName} mapping APN ${activeProperty.apn}.`);
+    // If autoReload was triggered, modify credit first
+    const submitDispatch = (actualCreditsAfter: number) => {
+      fetch('/api/db/postcards/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order: newOrder, email: currentUser.email })
+      }).then(res => {
+        if (res.ok) return res.json();
+        throw new Error('Offline saving');
+      }).then(data => {
+        setPostcardOrders(data.postcards);
+        const serverUser = data.users.find((u: any) => u.email.toLowerCase() === currentUser.email.toLowerCase());
+        if (serverUser) {
+          setCurrentUser(serverUser);
+        } else {
+          setCurrentUser({
+            ...currentUser,
+            marketingCredits: actualCreditsAfter
+          });
+        }
+        if (replenishmentRefill > 0) {
+          triggerNotification("🔄 Replenished Balance & Dispatched!", `Set USPS ${postcardSize} mailer! Balance auto-reloaded +$50.00 refill. New balance: $${actualCreditsAfter.toFixed(2)}`);
+        } else {
+          triggerNotification("📬 Postcard routed to USPS!", `Dispatched physical postcard to ${activeProperty.ownerName} targeting APN ${activeProperty.apn}.`);
+        }
+      }).catch(err => {
+        // Local Cache fallbacks
+        setCurrentUser({
+          ...currentUser,
+          marketingCredits: actualCreditsAfter
+        });
+        setPostcardOrders(prev => [newOrder, ...prev]);
+        if (replenishmentRefill > 0) {
+          triggerNotification("🔄 Replenished & Dispatched", `Auto-reloaded +$50.00 offline. Balance: $${actualCreditsAfter.toFixed(2)}`);
+        } else {
+          triggerNotification("📬 Card Spooled (Offline)", `Dispatched local queue to ${activeProperty.ownerName}.`);
+        }
+      });
+    };
+
+    if (replenishmentRefill > 0) {
+      // Execute credit replenishment step first
+      fetch('/api/db/users/modify-credits', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: currentUser.email, amount: replenishmentRefill })
+      }).then(() => {
+        const nextCredits = Number(((currentUser.marketingCredits + replenishmentRefill) - rate).toFixed(2));
+        submitDispatch(nextCredits);
+      }).catch(() => {
+        const nextCredits = Number(((currentUser.marketingCredits + replenishmentRefill) - rate).toFixed(2));
+        submitDispatch(nextCredits);
+      });
+    } else {
+      const nextCredits = Number((currentUser.marketingCredits - rate).toFixed(2));
+      submitDispatch(nextCredits);
+    }
   };
 
   const handleAddTenCreditsOverride = () => {
     if (!currentUser) return;
-    setCurrentUser({
-      ...currentUser,
-      marketingCredits: Number((currentUser.marketingCredits + 25.00).toFixed(2))
+    
+    fetch('/api/db/users/modify-credits', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: currentUser.email, amount: 25.00 })
+    }).then(res => {
+      if (res.ok) return res.json();
+      throw new Error('Offline loading fallback');
+    }).then(data => {
+      const serverUser = data.users.find((u: any) => u.email.toLowerCase() === currentUser.email.toLowerCase());
+      if (serverUser) {
+        setCurrentUser(serverUser);
+      } else {
+        setCurrentUser({
+          ...currentUser,
+          marketingCredits: Number((currentUser.marketingCredits + 25.00).toFixed(2))
+        });
+      }
+      triggerNotification("Loaded +$25.00 Marketing Credits", "Charges authorized. Secured postcard carrier allowance on server database.");
+    }).catch(err => {
+      setCurrentUser({
+        ...currentUser,
+        marketingCredits: Number((currentUser.marketingCredits + 25.00).toFixed(2))
+      });
+      triggerNotification("Loaded +$25.00 Marketing Credits", "Loaded postcard carrier allowance locally.");
     });
-    triggerNotification("Loaded +$25.00 Marketing Credits", "Loaded postcard carrier allowance securely.");
   };
 
   return (

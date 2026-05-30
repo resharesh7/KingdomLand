@@ -14,7 +14,12 @@ import {
 import { PLAN_COSTS } from '../data';
 
 interface WelcomeScreenProps {
-  onJoinTrail: (plan: 'Starter' | 'Pro' | 'Pro Plus', isAnnual: boolean, email: string) => void;
+  onJoinTrail: (
+    plan: 'Starter' | 'Pro' | 'Pro Plus', 
+    isAnnual: boolean, 
+    email: string, 
+    cardInfo?: { number: string; expiry: string; cvc: string; name: string }
+  ) => void;
   onOpenSignIn: () => void;
 }
 
@@ -29,6 +34,13 @@ export default function WelcomeScreen({ onJoinTrail, onOpenSignIn }: WelcomeScre
   const [rotateY, setRotateY] = useState(-25);
   const [autoRotate, setAutoRotate] = useState(true);
 
+  // Payment form states
+  const [selectedPlan, setSelectedPlan] = useState<'Starter' | 'Pro' | 'Pro Plus' | null>(null);
+  const [cardNumber, setCardNumber] = useState('');
+  const [cardExpiry, setCardExpiry] = useState('');
+  const [cardCvc, setCardCvc] = useState('');
+  const [cardName, setCardName] = useState('');
+
   // Auto animation effect simulating 3D rotation of the land parcel
   React.useEffect(() => {
     if (!autoRotate) return;
@@ -38,13 +50,42 @@ export default function WelcomeScreen({ onJoinTrail, onOpenSignIn }: WelcomeScre
     return () => clearInterval(interval);
   }, [autoRotate]);
 
-  // Pricing plans
+  // Pricing plans selection - moves to step 3 (Card Input)
   const handleSelectPlan = (plan: 'Starter' | 'Pro' | 'Pro Plus') => {
     if (!email || !email.includes('@')) {
       alert("Please enter a valid email address first!");
       return;
     }
-    onJoinTrail(plan, isAnnual, email);
+    setSelectedPlan(plan);
+  };
+
+  // Submit payment and validate card details prior to triggering account access
+  const handleActivateTrialSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedPlan) return;
+    if (!cardNumber || cardNumber.replace(/\s/g, '').length < 13) {
+      alert("Please enter a valid Credit Card number (at least 13-16 digits)!");
+      return;
+    }
+    if (!cardExpiry || !cardExpiry.includes('/')) {
+      alert("Please enter a valid Expiry Date in MM/YY format!");
+      return;
+    }
+    if (!cardCvc || cardCvc.length < 3) {
+      alert("Please enter a valid 3-digit CVV/CVC security code!");
+      return;
+    }
+    if (!cardName) {
+      alert("Please enter the Cardholder's full name!");
+      return;
+    }
+
+    onJoinTrail(selectedPlan, isAnnual, email, {
+      number: cardNumber.trim(),
+      expiry: cardExpiry.trim(),
+      cvc: cardCvc.trim(),
+      name: cardName.trim(),
+    });
   };
 
   // Zoning values mapping
@@ -123,7 +164,7 @@ export default function WelcomeScreen({ onJoinTrail, onOpenSignIn }: WelcomeScre
       {/* Dynamic Pop-up Sourced Announcement */}
       <div className="bg-emerald-600 text-white py-2.5 px-4 text-xs font-black font-mono tracking-widest text-center flex items-center justify-center gap-2 uppercase relative z-20 shadow-sm">
         <Sparkles className="w-4 h-4 animate-bounce text-amber-300" />
-        <span>7-DAY TRIAL ACTIVE: ALL SUBSCRIPTION PLANS INCLUDE $100 CASH PROMOTIONAL MARKETING CREDITS!</span>
+        <span>7-DAY TRIAL ACTIVE: ALL SUBSCRIPTION PLANS INCLUDE $50 PROMOTIONAL MARKETING CREDITS!</span>
       </div>
 
       {/* Main welcome content header */}
@@ -217,71 +258,202 @@ export default function WelcomeScreen({ onJoinTrail, onOpenSignIn }: WelcomeScre
                 </form>
               ) : (
                 <div className="space-y-4 animate-slide-down text-slate-800">
-                  <div className="flex justify-between items-center pb-2 border-b border-slate-200">
-                    <div>
-                      <strong className="text-xs text-emerald-600 font-extrabold uppercase tracking-wide">Step 2: Choose Sourcing Plan & Activate 7-Day Trial</strong>
-                      <p className="text-[10.5px] text-slate-500 mt-0.5">Capturing leads for: <span className="font-mono text-emerald-600">{email}</span></p>
-                    </div>
-                    <button 
-                      onClick={() => setEmailCaptured(false)}
-                      className="text-xs text-slate-500 hover:text-slate-900 underline cursor-pointer"
-                    >
-                      Change Email
-                    </button>
-                  </div>
-
-                  {/* Monthly vs Annual Toggle */}
-                  <div className="bg-slate-50 p-3 rounded-xl flex items-center justify-between border border-slate-200">
-                    <div>
-                      <span className="text-xs font-black text-slate-900 block">Annual Sourcing Discount</span>
-                      <span className="text-[10px] text-emerald-600 font-bold">Save up to 20% on monthly subscriptions</span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setIsAnnual(!isAnnual)}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer ${
-                        isAnnual ? 'bg-emerald-600 text-white shadow-sm' : 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-50'
-                      }`}
-                    >
-                      {isAnnual ? '✓ Annual Billing active' : 'Monthly (Click to Save 20%)'}
-                    </button>
-                  </div>
-
-                  {/* Pricing grid */}
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    {(['Starter', 'Pro', 'Pro Plus'] as const).map(p => (
-                      <button
-                        key={p}
-                        onClick={() => handleSelectPlan(p)}
-                        className="bg-white border border-slate-200 p-3.5 rounded-xl hover:border-emerald-650 hover:shadow-md text-center flex flex-col justify-between transition-all duration-200 group cursor-pointer"
-                      >
+                  {selectedPlan ? (
+                    <form onSubmit={handleActivateTrialSubmit} className="space-y-3.5">
+                      <div className="flex justify-between items-center pb-2 border-b border-slate-200">
                         <div>
-                          <strong className="text-[11px] font-black text-slate-500 block uppercase tracking-wider group-hover:text-emerald-600 transition">{p} TIER</strong>
-                          <div className="my-2.5 text-slate-900">
-                            <span className="text-xl font-mono font-black">
-                              ${isAnnual ? PLAN_COSTS[p].annual : PLAN_COSTS[p].monthly}
-                            </span>
-                            <span className="text-[10px] text-slate-500 font-bold">/mo</span>
-                          </div>
-                          <span className="text-[9px] block text-emerald-600 border-t border-slate-100 pt-1.5 font-bold uppercase leading-normal tracking-wider">
-                             7-Day free trial
-                          </span>
+                          <strong className="text-xs text-emerald-600 font-extrabold uppercase tracking-wide flex items-center gap-1">
+                            <span>🛡️ Step 3: Secure Trial Verification</span>
+                          </strong>
+                          <p className="text-[10.5px] text-slate-500 mt-0.5">
+                            Plan: <span className="font-mono text-slate-900 font-extrabold">{selectedPlan} Tier (${isAnnual ? PLAN_COSTS[selectedPlan].annual : PLAN_COSTS[selectedPlan].monthly}/{isAnnual ? 'yr' : 'mo'})</span>
+                          </p>
                         </div>
-                        <div className="mt-3.5 w-full bg-slate-50 group-hover:bg-emerald-600 group-hover:text-white text-slate-700 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition">
-                          Select {p}
-                        </div>
-                      </button>
-                    ))}
-                  </div>
+                        <button 
+                          type="button"
+                          onClick={() => setSelectedPlan(null)}
+                          className="text-xs text-emerald-600 hover:text-emerald-700 underline font-extrabold cursor-pointer"
+                        >
+                          Change Tier
+                        </button>
+                      </div>
 
-                  {/* Credit Disclaimer */}
-                  <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded-xl p-3.5 text-[10.5px] leading-relaxed flex items-start gap-2.5">
-                    <span className="text-sm shrink-0">⚠️</span>
-                    <div className="text-left">
-                      <strong className="block font-black uppercase text-[9px] tracking-wider text-amber-800 mb-0.5">Promotional Sourcing Credit Policy</strong>
-                      The free $100 credits are issued exclusively to first-time subscribers. This balance does not top up automatically on expiry. Everyone is responsible for purchasing and reloading their own campaign credits for outreach.
-                    </div>
-                  </div>
+                      <div className="bg-emerald-50/55 p-3.5 rounded-xl border border-emerald-100 text-[11px] leading-relaxed text-slate-650">
+                        <div className="flex items-center gap-1.5 mb-1 text-emerald-700 font-black uppercase text-[9px] tracking-wider">
+                          <span className="h-2 w-2 rounded-full bg-emerald-500 animate-ping"></span>
+                          <span>Zero-Charge Trial Authorized</span>
+                        </div>
+                        You will <strong className="text-slate-900 font-extrabold underline">NOT be charged today</strong>. Your 7-day completely free trial begins immediately. 
+                        We will draft <strong className="text-slate-900 font-bold">${isAnnual ? PLAN_COSTS[selectedPlan].annual : PLAN_COSTS[selectedPlan].monthly}.00</strong> on <strong className="text-emerald-700 font-bold font-mono">{new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</strong> only if you choose to keep your subscription. Cancel in 1-click anytime!
+                      </div>
+
+                      <div className="space-y-2.5">
+                        <div className="space-y-1 text-left">
+                          <label className="block text-[9.5px] font-bold text-slate-500 uppercase tracking-wide">Cardholder Full Name</label>
+                          <input 
+                            type="text" 
+                            required 
+                            placeholder="Taylor Tycoon" 
+                            value={cardName}
+                            onChange={e => setCardName(e.target.value)}
+                            className="w-full bg-slate-50 border border-slate-200 p-2 rounded-xl text-xs font-semibold text-slate-800 outline-none focus:border-emerald-500"
+                          />
+                        </div>
+
+                        <div className="space-y-1 text-left">
+                          <label className="block text-[9.5px] font-bold text-slate-500 uppercase tracking-wide">Credit Card Number</label>
+                          <input 
+                            type="text" 
+                            required
+                            maxLength={19}
+                            placeholder="4111 2222 3333 4444" 
+                            value={cardNumber}
+                            onChange={e => {
+                              const raw = e.target.value.replace(/\s+/g, '').replace(/[^0-9]/g, '');
+                              const formatted = raw.match(/.{1,4}/g)?.join(' ') || raw;
+                              setCardNumber(formatted);
+                            }}
+                            className="w-full bg-slate-50 border border-slate-200 p-2 rounded-xl text-xs font-mono font-bold text-slate-800 outline-none focus:border-emerald-500"
+                          />
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="space-y-1 text-left">
+                            <label className="block text-[9.5px] font-bold text-slate-500 uppercase tracking-wide">Expiration</label>
+                            <input 
+                              type="text" 
+                              required
+                              maxLength={5}
+                              placeholder="MM/YY" 
+                              value={cardExpiry}
+                              onChange={e => {
+                                let val = e.target.value.replace(/[^0-9]/g, '');
+                                if (val.length > 2) {
+                                  val = val.slice(0, 2) + '/' + val.slice(2, 4);
+                                }
+                                setCardExpiry(val);
+                              }}
+                              className="w-full bg-slate-50 border border-slate-200 p-2 rounded-xl text-xs font-mono font-bold text-slate-800 outline-none focus:border-emerald-500 text-center"
+                            />
+                          </div>
+                          <div className="space-y-1 text-left">
+                            <label className="block text-[9.5px] font-bold text-slate-500 uppercase tracking-wide">CVV / CVC</label>
+                            <input 
+                              type="password" 
+                              required
+                              maxLength={4}
+                              placeholder="•••" 
+                              value={cardCvc}
+                              onChange={e => setCardCvc(e.target.value.replace(/[^0-9]/g, ''))}
+                              className="w-full bg-slate-50 border border-slate-200 p-2 rounded-xl text-xs font-mono font-bold text-slate-800 outline-none focus:border-emerald-500 text-center"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      <button
+                        type="submit"
+                        className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-black py-2.5 rounded-xl transition duration-200 select-none cursor-pointer flex items-center justify-center gap-1.5 uppercase tracking-wider text-[11px] shadow-sm"
+                      >
+                        <span>🚀 Activate my 7-Day Free Trial & $50 Gift</span>
+                      </button>
+                    </form>
+                  ) : (
+                    <>
+                      <div className="flex justify-between items-center pb-2 border-b border-slate-200">
+                        <div>
+                          <strong className="text-xs text-emerald-600 font-extrabold uppercase tracking-wide">Step 2: Choose Sourcing Plan & Activate 7-Day Trial</strong>
+                          <p className="text-[10.5px] text-slate-500 mt-0.5">Capturing leads for: <span className="font-mono text-emerald-600">{email}</span></p>
+                        </div>
+                        <button 
+                          onClick={() => setEmailCaptured(false)}
+                          className="text-xs text-slate-500 hover:text-slate-900 underline cursor-pointer"
+                        >
+                          Change Email
+                        </button>
+                      </div>
+
+                      {/* Monthly vs Annual Toggle */}
+                      <div className="bg-slate-50 p-3 rounded-xl flex items-center justify-between border border-slate-200">
+                        <div>
+                          <span className="text-xs font-black text-slate-900 block">Annual Sourcing Discount</span>
+                          <span className="text-[10px] text-emerald-600 font-bold">Save up to 20% on monthly subscriptions</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setIsAnnual(!isAnnual)}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer ${
+                            isAnnual ? 'bg-emerald-600 text-white shadow-sm' : 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-50'
+                          }`}
+                        >
+                          {isAnnual ? '✓ Annual Billing active' : 'Monthly (Click to Save 20%)'}
+                        </button>
+                      </div>
+
+                      {/* Pricing grid */}
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        {(['Starter', 'Pro', 'Pro Plus'] as const).map(p => {
+                          const userLimit = p === 'Starter' ? '1 User Seat' : p === 'Pro' ? '3 User Seats' : '6 User Seats';
+                          const features = p === 'Starter' 
+                            ? ['Basic GIS searching', 'Standard mail rate', 'Local CRM persistent logs']
+                            : p === 'Pro' 
+                            ? ['Priority USPS rates', 'AI Sourcing assistant', 'Auto-Reload balance tools']
+                            : ['Deep bulk USPS rates', 'Integrations developer API', 'Dedicated campaign advisor'];
+                          
+                          return (
+                            <button
+                              key={p}
+                              type="button"
+                              onClick={() => handleSelectPlan(p)}
+                              className="bg-white border-2 border-slate-200 p-4 rounded-2xl hover:border-emerald-600 hover:shadow-lg text-left flex flex-col justify-between transition-all duration-200 group cursor-pointer text-slate-800"
+                            >
+                              <div className="space-y-3.5">
+                                <div className="flex items-center justify-between">
+                                  <strong className="text-[11px] font-black text-slate-500 block uppercase tracking-wider group-hover:text-emerald-600 transition">{p} TIER</strong>
+                                  <span className="text-[9px] bg-slate-900 text-white font-mono font-black px-1.5 py-0.5 rounded uppercase">
+                                    {userLimit}
+                                  </span>
+                                </div>
+                                <div className="my-1 text-slate-900">
+                                  <span className="text-2xl font-mono font-black">
+                                    ${isAnnual ? PLAN_COSTS[p].annual : PLAN_COSTS[p].monthly}
+                                  </span>
+                                  <span className="text-xs text-slate-500 font-bold">/mo</span>
+                                </div>
+                                
+                                <div className="border-t border-slate-100 pt-2.5 space-y-1.5">
+                                  <span className="text-[9.5px] block text-emerald-600 font-black uppercase tracking-wider leading-none">
+                                    Included Features:
+                                  </span>
+                                  <ul className="space-y-1 text-[10px] text-slate-550 list-inside list-disc">
+                                    {features.map((f, i) => (
+                                      <li key={i} className="leading-tight font-medium">{f}</li>
+                                    ))}
+                                  </ul>
+                                </div>
+                                
+                                <span className="text-[9px] block text-emerald-600 border-t border-slate-100 pt-1.5 font-bold uppercase leading-normal tracking-wider text-center">
+                                   Starts with 7-Day Free Trial
+                                </span>
+                              </div>
+                              <div className="mt-4 w-full bg-slate-50 group-hover:bg-emerald-600 group-hover:text-white text-slate-800 py-2 rounded-xl text-[10px] font-black uppercase text-center tracking-wider transition">
+                                Select {p} Options
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      {/* Credit Disclaimer */}
+                      <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded-xl p-3.5 text-[10.5px] leading-relaxed flex items-start gap-2.5">
+                        <span className="text-sm shrink-0">⚠️</span>
+                        <div className="text-left">
+                          <strong className="block font-black uppercase text-[9px] tracking-wider text-amber-800 mb-0.5">Promotional Sourcing Credit Policy</strong>
+                          The free $50 credits are issued exclusively to first-time subscribers. This balance does not top up automatically on expiry. Everyone is responsible for purchasing and reloading their own campaign credits for outreach.
+                        </div>
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
             </div>

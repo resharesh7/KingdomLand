@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Sparkles, 
   RefreshCw, 
@@ -14,7 +14,15 @@ import {
   TrendingUp, 
   Flame,
   FileText,
-  Mail
+  Mail,
+  Phone,
+  PhoneCall,
+  PhoneOff,
+  Clock,
+  UserCheck,
+  MessageSquare,
+  History,
+  Volume2
 } from 'lucide-react';
 import { Property, UserProfile } from '../types';
 
@@ -75,6 +83,106 @@ export default function GisAppraiserTab({
   const [generatedPitch, setGeneratedPitch] = useState<any[]>([]);
   const [aiFeasibility, setAiFeasibility] = useState<any | null>(null);
   const [recipientEmail, setRecipientEmail] = useState('');
+
+  // Cold Calling Assistant States
+  const [callLogs, setCallLogs] = useState<any[]>(() => {
+    try {
+      const saved = localStorage.getItem('kingdomland_coldcalls_logs');
+      return saved ? JSON.parse(saved) : [
+        {
+          id: 'mock-call-1',
+          propertyName: 'Phoenix Land Tract',
+          apn: '201-14-998A',
+          ownerName: 'Dan Henderson',
+          outcome: 'Answered - Warm Lead',
+          notes: 'Wants $34,500 instead of $32,000. Willing to sign option contract Tuesday.',
+          timestamp: new Date(Date.now() - 4 * 3600000).toISOString()
+        }
+      ];
+    } catch {
+      return [];
+    }
+  });
+
+  const [callOutcome, setCallOutcome] = useState('Answered - Warm Lead');
+  const [callNotes, setCallNotes] = useState('');
+  const [isCallingActive, setIsCallingActive] = useState(false);
+  const [activeCallDuration, setActiveCallDuration] = useState(0);
+  const [isTimerRunning, setIsTimerRunning] = useState(false);
+
+  // Auto incrementing call duration simulation effect with dynamic pause capability
+  useEffect(() => {
+    let interval: any;
+    if (isCallingActive && isTimerRunning) {
+      interval = setInterval(() => {
+        setActiveCallDuration(prev => prev + 1);
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [isCallingActive, isTimerRunning]);
+
+  const handleStartSimulatedCall = () => {
+    setIsCallingActive(true);
+    setIsTimerRunning(true);
+    setActiveCallDuration(0);
+    triggerNotification("📞 Connecting Call...", `Dialing landowner contact: ${activeProperty?.ownerName || 'Unknown Owner'}`);
+  };
+
+  const handleStopCallTimer = () => {
+    setIsTimerRunning(false);
+    triggerNotification("⏸️ Call Timer Frozen", "Duration count paused. You can end the call or resume anytime.");
+  };
+
+  const handleResumeCallTimer = () => {
+    setIsTimerRunning(true);
+    triggerNotification("▶️ Timer Resumed", "Simulated phone call tracking in progress again.");
+  };
+
+  const handleHangUpCall = () => {
+    setIsTimerRunning(false);
+    setIsCallingActive(false);
+    triggerNotification("📞 Call Disconnected", "Dialing session stopped. Save notes to file under the ledger.");
+  };
+
+  const handleSaveCallLog = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeProperty) return;
+
+    const durationLabel = activeCallDuration > 0 ? ` [Dur: ${getFormatDuration(activeCallDuration)}]` : '';
+    const newLog = {
+      id: 'call-' + Date.now(),
+      propertyName: `${activeProperty.city} Parcel`,
+      apn: activeProperty.apn,
+      ownerName: activeProperty.ownerName,
+      outcome: callOutcome,
+      notes: (callNotes || 'Dialled owner to review vacant land buy offer.') + durationLabel,
+      timestamp: new Date().toISOString()
+    };
+
+    const updated = [newLog, ...callLogs];
+    setCallLogs(updated);
+    localStorage.setItem('kingdomland_coldcalls_logs', JSON.stringify(updated));
+    setCallNotes('');
+    setActiveCallDuration(0);
+    triggerNotification("☎️ Call Log Cached!", `Cold call logged for ${activeProperty.ownerName}.`);
+  };
+
+  const handleDeleteCallLog = (id: string) => {
+    const updated = callLogs.filter(item => item.id !== id);
+    setCallLogs(updated);
+    localStorage.setItem('kingdomland_coldcalls_logs', JSON.stringify(updated));
+    triggerNotification("Disposed Log", "Purged call entry successfully.");
+  };
+
+  const getFormatDuration = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const getAiInspiredColdCallScript = (prop: Property) => {
+    return `“Hey there, is this ${prop.ownerName}? My name is with KingdomLand. I was reviewing County Tax Appraiser records for ${prop.city} and noticed your ${prop.acreage} Acre vacant parcel (APN: ${prop.apn}). I appreciate it's completely out of the blue, but we are looking to acquire vacant tracts here. Would you take $${(prop.price).toLocaleString()} cash, or what price makes sense to let this go?”`;
+  };
 
   const handleOpenDefaultEmail = (subject: string, body: string) => {
     const to = recipientEmail ? encodeURIComponent(recipientEmail) : '';
@@ -719,6 +827,232 @@ export default function GisAppraiserTab({
                 🤖 Select any parcel record to unlock automated intelligence. Gemini will run tax appraisal statistics and draft outreach.
               </p>
             )}
+
+          </div>
+
+          {/* --- LANDOWNER COLD-CALLING ASSISTANT --- */}
+          <div className="bg-white border-2 border-emerald-650/30 rounded-2xl p-5 text-left shadow-sm space-y-4">
+            
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b border-slate-200 pb-3 gap-3">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2.5 bg-emerald-50 text-emerald-600 rounded-xl border border-emerald-200 shrink-0">
+                  <PhoneCall className="w-5.5 h-5.5 animate-pulse" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black uppercase text-slate-900 tracking-wide flex items-center flex-wrap gap-1.5">
+                    <span>☎️ Direct Landowner Cold-Calling Assistant</span>
+                    <span className="text-[9px] bg-emerald-600 text-white font-mono px-2 py-0.5 rounded-full uppercase animate-pulse">
+                      Live Telephony Dialing Module
+                    </span>
+                  </h3>
+                  <p className="text-[10.5px] text-slate-500 font-bold mt-0.5">
+                    Dial lead property owners instantly and document calls under land ledger rows.
+                  </p>
+                </div>
+              </div>
+
+              {!isCallingActive ? (
+                <button
+                  type="button"
+                  onClick={handleStartSimulatedCall}
+                  className="bg-emerald-600 hover:bg-emerald-505 text-white font-black px-4 py-2.5 rounded-xl text-xs uppercase tracking-wider flex items-center gap-1.5 cursor-pointer shadow-md transition duration-200 shrink-0"
+                >
+                  <Phone className="w-3.5 h-3.5" />
+                  <span>Start Live Dial Session</span>
+                </button>
+              ) : (
+                <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+                  {/* Digital timer badge */}
+                  <div className={`border rounded-xl px-3 py-2 text-xs font-mono font-black flex items-center gap-2 ${
+                    isTimerRunning 
+                      ? 'bg-rose-50 border-rose-250 text-rose-750 animate-pulse' 
+                      : 'bg-slate-100 border-slate-300 text-slate-600'
+                  }`}>
+                    <Volume2 className={`w-3.5 h-3.5 ${isTimerRunning ? 'text-rose-550 animate-bounce' : 'text-slate-400'}`} />
+                    <span>TIMER: {getFormatDuration(activeCallDuration)} {isTimerRunning ? '' : '(PAUSED)'}</span>
+                  </div>
+
+                  {/* Pause / Play Call Timer button */}
+                  {isTimerRunning ? (
+                    <button
+                      type="button"
+                      onClick={handleStopCallTimer}
+                      className="bg-amber-500 hover:bg-amber-450 text-white font-black px-3.5 py-2.5 rounded-xl text-xs uppercase tracking-wider transition-all duration-200 cursor-pointer flex items-center justify-center gap-1.5 shrink-0"
+                      title="Freeze calling counter"
+                    >
+                      <Clock className="w-3.5 h-3.5" />
+                      <span>Stop Timer</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleResumeCallTimer}
+                      className="bg-emerald-600 hover:bg-emerald-555 text-white font-black px-3.5 py-2.5 rounded-xl text-xs uppercase tracking-wider transition-all duration-200 cursor-pointer flex items-center justify-center gap-1.5 shrink-0"
+                      title="Continue calling counter"
+                    >
+                      <PhoneCall className="w-3.5 h-3.5" />
+                      <span>Resume Timer</span>
+                    </button>
+                  )}
+
+                  {/* Stop / End Call button */}
+                  <button
+                    type="button"
+                    onClick={handleHangUpCall}
+                    className="bg-rose-650 hover:bg-rose-550 border border-rose-700 text-white font-black px-4 py-2.5 rounded-xl text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 cursor-pointer shrink-0 transition-colors"
+                  >
+                    <PhoneOff className="w-3.5 h-3.5" />
+                    <span>End Call / Stop</span>
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Active dial state displays */}
+            {isCallingActive && activeProperty && (
+              <div className="bg-slate-950 text-white p-5 rounded-2xl border-2 border-neon-cyan/55 space-y-4 animate-slide-down relative overflow-hidden">
+                <div className="absolute inset-0 opacity-10 bg-[radial-gradient(#00ffff_1px,transparent_1px)] [background-size:12px_12px]"></div>
+                
+                <div className="flex justify-between items-start relative z-10">
+                  <div>
+                    <span className="text-[9.5px] font-mono tracking-widest text-neon-cyan font-black uppercase block glow-text-cyan">
+                      &bull; TELEPHONY GRID LIVE DIAL LINKED
+                    </span>
+                    <h4 className="text-sm font-black uppercase text-white mt-1.5">
+                      Calibrated Line: <span className="font-mono text-neon-bright-green">{encryptionOn ? '+1 (🔒) Masked' : activeProperty.ownerPhone}</span>
+                    </h4>
+                    <p className="text-xs text-slate-400 mt-1">
+                      Landowner: <strong className="text-white">{encryptionOn ? '🔒 Privacy Encrypted' : activeProperty.ownerName}</strong> &bull; APN: {activeProperty.apn}
+                    </p>
+                  </div>
+
+                  <div className="text-right">
+                    <span className="text-[9.5px] bg-neon-cyan-dim text-neon-cyan border border-neon-cyan/40 font-mono font-black tracking-widest uppercase px-2 py-1 rounded">
+                      Outbound Call
+                    </span>
+                  </div>
+                </div>
+
+                {/* Click-to-call link for real phone triggers */}
+                <div className="bg-slate-900 border border-slate-850 p-3.5 rounded-xl flex flex-col sm:flex-row items-center justify-between text-xs text-slate-350 gap-3 relative z-10">
+                  <span className="font-medium text-[11px] text-center sm:text-left">Would you like to dial out using your local phone system instead?</span>
+                  <a
+                    href={`tel:${activeProperty.ownerPhone}`}
+                    className="bg-neon-cyan/10 hover:bg-neon-cyan/20 border-2 border-neon-cyan text-neon-cyan px-4 py-2 rounded-xl font-black uppercase tracking-wider transition text-center shrink-0 text-[10.5px]"
+                    onClick={() => triggerNotification("Initiating tel protocol", "Sourcing device call application.")}
+                  >
+                    📞 Dial {encryptionOn ? 'Masked' : activeProperty.ownerPhone}
+                  </a>
+                </div>
+
+                {/* Dynamic AI Script for call helper */}
+                <div className="space-y-2 relative z-10">
+                  <div className="flex items-center gap-1.5 text-neon-pink">
+                    <MessageSquare className="w-4 h-4 text-neon-pink animate-pulse" />
+                    <span className="text-[10px] font-mono font-black uppercase tracking-wider glow-text-pink">Instant Cold Call Screen-Script:</span>
+                  </div>
+                  <div className="bg-slate-900 border border-slate-850 p-4 rounded-xl text-slate-200 text-xs leading-relaxed italic whitespace-pre-line font-medium shadow-inner">
+                    {getAiInspiredColdCallScript(activeProperty)}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Disposition & logger form */}
+            {activeProperty && (
+              <form onSubmit={handleSaveCallLog} className="bg-slate-50 border border-slate-205 p-4 rounded-xl space-y-3.5">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-left text-xs">
+                  <div className="space-y-1">
+                    <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wide">Call Outcome Disposition</label>
+                    <select
+                      value={callOutcome}
+                      onChange={e => setCallOutcome(e.target.value)}
+                      className="w-full bg-white border border-slate-250 p-2.5 rounded-xl text-xs text-slate-800 font-bold focus:border-emerald-600 outline-none cursor-pointer"
+                    >
+                      <option value="Answered - Warm Lead">🔥 Answered - Warm Lead / Interested</option>
+                      <option value="Answered - Busy / Call Back">⏳ Answered - Request Callback</option>
+                      <option value="Wrong Number / Dead Line">⚠️ Wrong Number / Deceased Owner</option>
+                      <option value="Voicemail Drop">📬 Deposited to Voicemail Box</option>
+                      <option value="No Answer At All">💤 Ringing Finished - No Answer</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wide">Detailed Conversation Log Notes</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. Owner willing to let it go for $12k cash, wants prompt option email..."
+                      value={callNotes}
+                      onChange={e => setCallNotes(e.target.value)}
+                      className="w-full bg-white border border-slate-250 p-2.5 rounded-xl text-xs text-slate-800 font-medium focus:border-emerald-600 outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex justify-end pt-1">
+                  <button
+                    type="submit"
+                    className="bg-slate-950 hover:bg-slate-900 border-2 border-emerald-500 text-neon-bright-green font-black py-2.5 px-4 rounded-xl text-xs uppercase tracking-wider cursor-pointer shadow-[0_0_10px_rgba(57,255,20,0.15)] hover:shadow-[0_0_15px_rgba(57,255,20,0.35)] transition duration-200"
+                  >
+                    📝 Log Call Entry to Ledger
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* Call Logs History Section */}
+            <div className="space-y-2.5 pt-1.5">
+              <div className="flex items-center gap-1.5 text-slate-500">
+                <History className="w-4 h-4 text-slate-400" />
+                <span className="text-[10px] font-mono font-black uppercase tracking-wider">Cold Calling Campaign Ledger History ({callLogs.length})</span>
+              </div>
+
+              {callLogs.length === 0 ? (
+                <p className="text-[11px] text-slate-500 font-mono text-center select-none py-2">No call logs recorded. Launch dialers to keep history tracks.</p>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 max-h-[220px] overflow-y-auto pr-1">
+                  {callLogs.map((log: any) => (
+                    <div key={log.id} className="bg-slate-50 border border-slate-200 hover:border-emerald-600/30 p-3.5 rounded-xl flex flex-col justify-between transition text-xs relative group text-left">
+                      <div>
+                        <div className="flex justify-between items-start mb-1.5">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="text-[9.5px] bg-slate-205 border border-slate-300 px-1.5 py-0.5 rounded font-black font-mono">
+                              APN: {log.apn}
+                            </span>
+                            <span className="text-xs font-black text-slate-800 font-sans">
+                              {log.ownerName}
+                            </span>
+                          </div>
+                          
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteCallLog(log.id)}
+                            className="text-slate-400 hover:text-rose-600 transition cursor-pointer shrink-0"
+                            title="Delete log"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+
+                        <div className="flex items-center gap-2 text-[10px] text-slate-500 mb-2">
+                          <span className="font-extrabold text-emerald-700 capitalize p-0.5 bg-emerald-50 px-2 rounded border border-emerald-200/40 text-[9px] font-mono leading-none">
+                            {log.outcome}
+                          </span>
+                          <span className="font-mono text-[9px] text-slate-400">
+                            {new Date(log.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                          </span>
+                        </div>
+
+                        <p className="text-[10.5px] bg-white border border-slate-100 p-2 text-slate-600 rounded-lg font-medium tracking-tight">
+                          {log.notes}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
 
           </div>
 

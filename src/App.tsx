@@ -18,6 +18,7 @@ import WelcomeScreen from './components/WelcomeScreen';
 import GisAppraiserTab from './components/GisAppraiserTab';
 import AccountingTab from './components/AccountingTab';
 import PostcardsTab from './components/PostcardsTab';
+import AdminTab from './components/AdminTab';
 
 export default function App() {
   // --- USER PROFILE STATE ---
@@ -26,42 +27,53 @@ export default function App() {
     if (saved) {
       try { return JSON.parse(saved); } catch (e) { return null; }
     }
-    // Default guest starts sign-out to show interactive 3D Welcome screen!
     return null;
   });
 
   // Database lists
-  const [properties, setProperties] = useState<Property[]>(() => {
-    const saved = localStorage.getItem('kingdomland_properties');
-    if (saved) {
-      try { return JSON.parse(saved); } catch (e) { return NATIONWIDE_VACANT_PROPERTIES; }
-    }
-    return NATIONWIDE_VACANT_PROPERTIES;
-  });
+  const [properties, setProperties] = useState<Property[]>(NATIONWIDE_VACANT_PROPERTIES);
+  const [postcardOrders, setPostcardOrders] = useState<PostcardOrder[]>([]);
+  const [dbUsers, setDbUsers] = useState<UserProfile[]>([]);
 
-  const [postcardOrders, setPostcardOrders] = useState<PostcardOrder[]>(() => {
-    const saved = localStorage.getItem('kingdomland_postcards');
-    if (saved) {
-      try { return JSON.parse(saved); } catch (e) { return []; }
-    }
-    return [
-      {
-        id: 'ord-1',
-        propertyApn: '110-04-982B',
-        recipient: 'Sarah Higgins',
-        recipientMail: '88 Blanca Vista Dr, Fort Garland, CO 81133',
-        size: '6x9',
-        cost: 0.72,
-        timestamp: '2026-05-28 14:10',
-        templateName: 'I Want To Buy Your Vacant Land For Cash!'
+  // Synchronize state with real backend JSON flat-file database on load
+  useEffect(() => {
+    async function bootstrapDatabase() {
+      try {
+        const res = await fetch('/api/db/bootstrap');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.properties && data.properties.length > 0) {
+            setProperties(data.properties);
+          }
+          if (data.postcards) {
+            setPostcardOrders(data.postcards);
+          }
+          if (data.users) {
+            setDbUsers(data.users);
+            if (currentUser) {
+              const freshSelf = data.users.find((u: any) => u.email.toLowerCase() === currentUser.email.toLowerCase());
+              if (freshSelf) {
+                setCurrentUser(freshSelf);
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('REST Database offline, falling back to browser cached values', err);
       }
-    ];
-  });
+    }
+    bootstrapDatabase();
+  }, [currentUser?.email]);
 
   // Active view states
-  const [activeTab, setActiveTab] = useState<'gis-appraiser' | 'postcards' | 'accounting'>('gis-appraiser');
+  const [activeTab, setActiveTab] = useState<'gis-appraiser' | 'postcards' | 'accounting' | 'admin'>('gis-appraiser');
   const [selectedPropId, setSelectedPropId] = useState<string>('prop-101');
   const [encryptionOn, setEncryptionOn] = useState(true);
+  
+  // Track master admin session authentication state
+  const [isAdminSession, setIsAdminSession] = useState<boolean>(() => {
+    return sessionStorage.getItem('kingdomland_admin_authenticated') === 'true';
+  });
 
   // Search parameters for searching up to 5 cities simultaneously
   const [citySearchInput, setCitySearchInput] = useState('Phoenix, Belen, Fort Garland, Tampa, Dallas');
@@ -93,67 +105,182 @@ export default function App() {
     setNotification({ title, text });
     setTimeout(() => {
       setNotification(null);
-    }, 4500);
+    }, 4505);
   };
 
-  // Callback to unlock the sandbox platform from Welcome Captures
-  const handleActivateTrial = (plan: 'Starter' | 'Pro' | 'Pro Plus', isAnnual: boolean, email: string) => {
-    const newUser: UserProfile = {
-      name: 'Taylor Tycoon',
-      email: email,
-      plan: plan,
-      isAnnual: isAnnual,
-      marketingCredits: 100.00, // Gift free $100 marketing start credits!
-      autoReloadEnabled: true,
-      trialDaysLeft: 7,
-      isTrial: true,
-      createdAt: new Date().toISOString()
-    };
-    setCurrentUser(newUser);
-    triggerNotification("7-Day Free Trial Activated!", `Enrolled under ${plan} tier with free $100 marketing cash check included.`);
+  // Admin status/ledger toggles synchronized with server database
+  const handleToggleCustomerStatus = async (email: string) => {
+    try {
+      const res = await fetch('/api/db/users/toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setDbUsers(data.users);
+        const freshSelf = data.users.find((u: any) => u.email.toLowerCase() === (currentUser?.email || '').toLowerCase());
+        if (freshSelf) setCurrentUser(freshSelf);
+        triggerNotification("Customer policy altered", `Active state of ${email} reversed.`);
+      }
+    } catch (e) {
+      setDbUsers(prev => prev.map(u => u.email === email ? { ...u, isActive: !u.isActive } : u));
+    }
   };
 
-  const handleBypassSignIn = (e: React.FormEvent) => {
+  const handleModifyCustomerCredits = async (email: string, amount: number) => {
+    try {
+      const res = await fetch('/api/db/users/modify-credits', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, amount })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setDbUsers(data.users);
+        const freshSelf = data.users.find((u: any) => u.email.toLowerCase() === (currentUser?.email || '').toLowerCase());
+        if (freshSelf) setCurrentUser(freshSelf);
+        triggerNotification("Credits updated", `${amount > 0 ? 'Gifted' : 'Deducted'} $${Math.abs(amount).toFixed(2)} to ${email}`);
+      }
+    } catch (e) {
+      setDbUsers(prev => prev.map(u => u.email === email ? { ...u, marketingCredits: Math.max(0, u.marketingCredits + amount) } : u));
+    }
+  };
+
+  // Callback to unlock the platform from Welcome Captures including actual tokenized payment
+  const handleActivateTrial = async (
+    plan: 'Starter' | 'Pro' | 'Pro Plus', 
+    isAnnual: boolean, 
+    email: string,
+    cardInfo?: { number: string; expiry: string; cvc: string; name: string }
+  ) => {
+    try {
+      const res = await fetch('/api/db/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, plan, isAnnual, name: cardInfo?.name, cardInfo })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setCurrentUser(data.user);
+        triggerNotification(
+          "7-Day Free Trial Activated!", 
+          `Card ending in ${cardInfo?.number.slice(-4)} verified. You will ONLY be billed after your 7-day trial period under ${plan} tier.`
+        );
+      }
+    } catch (e) {
+      const newUser: UserProfile = {
+        name: cardInfo?.name || 'Taylor Tycoon',
+        email: email,
+        plan: plan,
+        isAnnual: isAnnual,
+        marketingCredits: 50.00, // Reduced promotional gifts from $100 to $50
+        autoReloadEnabled: true,
+        trialDaysLeft: 7,
+        isTrial: true,
+        createdAt: new Date().toISOString()
+      };
+      setCurrentUser(newUser);
+      triggerNotification("Offline Sandbox Activated!", `Enrolled under ${plan} tier with local cache fallback.`);
+    }
+  };
+
+  const handleBypassSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!signInEmail) return;
-    const existingUser: UserProfile = {
-      name: 'Taylor Tycoon',
-      email: signInEmail,
-      plan: 'Pro',
-      isAnnual: false,
-      marketingCredits: 84.50,
-      autoReloadEnabled: true,
-      trialDaysLeft: 5,
-      isTrial: true,
-      createdAt: new Date().toISOString()
-    };
-    setCurrentUser(existingUser);
-    setShowSignInModal(false);
-    triggerNotification("Welcome back!", "Secure wholesaling login completed.");
+    try {
+      const res = await fetch('/api/db/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: signInEmail })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setCurrentUser(data.user);
+        setShowSignInModal(false);
+        triggerNotification("Welcome back!", `Authenticated account verified: ${data.user.name}`);
+      }
+    } catch (err) {
+      const existingUser: UserProfile = {
+        name: 'Taylor Tycoon',
+        email: signInEmail,
+        plan: 'Pro',
+        isAnnual: false,
+        marketingCredits: 50.00,
+        autoReloadEnabled: true,
+        trialDaysLeft: 5,
+        isTrial: true,
+        createdAt: new Date().toISOString()
+      };
+      setCurrentUser(existingUser);
+      setShowSignInModal(false);
+      triggerNotification("Welcome back (Offline)", "Logged in using local cache fallback.");
+    }
   };
 
   const handleLogout = () => {
     setCurrentUser(null);
+    sessionStorage.removeItem('kingdomland_admin_authenticated');
+    setIsAdminSession(false);
     triggerNotification("Logged Out", "Signed out of KingdomLand securely.");
   };
 
   // Callback actions to mutate property records list on accounting tabs
-  const handleAddSourcedProperty = (added: Property) => {
-    setProperties([added, ...properties]);
+  const handleAddSourcedProperty = async (added: Property) => {
+    try {
+      const res = await fetch('/api/db/properties/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ property: added })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setProperties(data.properties);
+      }
+    } catch (e) {
+      setProperties([added, ...properties]);
+    }
   };
 
-  const handleDeleteSourcedProperty = (id: string) => {
-    setProperties(prev => prev.filter(p => p.id !== id));
+  const handleDeleteSourcedProperty = async (id: string) => {
+    try {
+      const res = await fetch('/api/db/properties/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setProperties(data.properties);
+      }
+    } catch (e) {
+      setProperties(prev => prev.filter(p => p.id !== id));
+    }
     triggerNotification("Record purged", "Land appraiser row deleted.");
   };
 
-  const handleUpdateStatusInSpreadsheet = (propId: string, status: 'Lead' | 'Approved' | 'Sold' | 'Not Interested') => {
-    setProperties(prev => prev.map(p => {
-      if (p.id === propId) {
-        return { ...p, status };
+  const handleUpdateStatusInSpreadsheet = async (propId: string, status: 'Lead' | 'Approved' | 'Sold' | 'Not Interested') => {
+    const item = properties.find(p => p.id === propId);
+    if (!item) return;
+    const updated = { ...item, status };
+    try {
+      const res = await fetch('/api/db/properties/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ property: updated })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setProperties(data.properties);
       }
-      return p;
-    }));
+    } catch (e) {
+      setProperties(prev => prev.map(p => {
+        if (p.id === propId) {
+          return { ...p, status };
+        }
+        return p;
+      }));
+    }
     triggerNotification("Spreadsheet recalculated", `Flipping status changed to: ${status}`);
   };
 
@@ -286,28 +413,59 @@ export default function App() {
           </button>
 
           {/* User badge display */}
-          <div className="flex items-center bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-1.5 gap-3.5 shadow-sm">
-            <div className="text-right">
-              <div className="flex items-center gap-2 justify-end">
-                <span className="text-xs font-extrabold text-slate-805">{currentUser.name}</span>
-                <span className="text-[9px] bg-emerald-600 text-white font-black px-1.5 py-0.2 rounded uppercase">
-                  {currentUser.plan}
-                </span>
+          {isAdminSession ? (
+            <div className="flex items-center bg-slate-950 border-2 border-rose-500/50 rounded-xl px-3.5 py-1.5 gap-3.5 shadow-[0_0_15px_rgba(225,29,72,0.15)]">
+              <div className="text-right">
+                <div className="flex items-center gap-1.5 justify-end">
+                  <span className="text-xs font-black text-rose-400 uppercase tracking-wide">SaaS Master Owner (GG)</span>
+                  <span className="text-[9px] bg-rose-655 text-white font-mono font-black px-1.5 py-0.5 rounded uppercase">
+                    Root Admin
+                  </span>
+                  <span className="text-[9px] bg-slate-900 text-slate-350 border border-slate-800 font-bold px-1 py-0.5 rounded font-mono uppercase">
+                    Unlimited Seats
+                  </span>
+                </div>
+                <div className="text-[9.5px] text-slate-400 flex items-center gap-1.5 justify-end mt-0.5 uppercase tracking-wider font-mono">
+                  <span>Ledger: <strong className="text-rose-455">Omnipresent Sandbox</strong></span>
+                  <span>•</span>
+                  <span>Plan: <strong className="text-amber-500">Master Lifetime</strong></span>
+                </div>
               </div>
-              <div className="text-[10px] text-slate-500 flex items-center gap-1.5 justify-end mt-0.5">
-                <span>Credits: <strong className="text-emerald-600 font-mono">${currentUser.marketingCredits.toFixed(2)}</strong></span>
-                <span>•</span>
-                <span>Trial: <strong className="text-amber-600 font-black">{currentUser.trialDaysLeft} days left</strong></span>
-              </div>
+              
+              <button 
+                onClick={handleLogout}
+                className="text-xs text-rose-500 hover:text-rose-400 border-l border-slate-800 pl-3.5 font-black uppercase tracking-wider cursor-pointer transition-all hover:scale-105"
+              >
+                Exit
+              </button>
             </div>
-            
-            <button 
-              onClick={handleLogout}
-              className="text-xs text-rose-650 hover:text-rose-500 border-l border-slate-200 pl-3.5 font-black uppercase tracking-wider cursor-pointer transition-all hover:scale-105"
-            >
-              Sign Out
-            </button>
-          </div>
+          ) : (
+            <div className="flex items-center bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-1.5 gap-3.5 shadow-sm">
+              <div className="text-right">
+                <div className="flex items-center gap-1.5 justify-end">
+                  <span className="text-xs font-extrabold text-slate-805">{currentUser.name}</span>
+                  <span className="text-[9px] bg-emerald-600 text-white font-black px-1.5 py-0.2 rounded uppercase">
+                    {currentUser.plan}
+                  </span>
+                  <span className="text-[9px] bg-slate-900 text-slate-205 border border-slate-800 font-bold px-1 py-0.2 rounded font-mono uppercase">
+                    {currentUser.plan === 'Starter' ? '1 User Max' : currentUser.plan === 'Pro' ? '3 Users Max' : '6 Users Max'}
+                  </span>
+                </div>
+                <div className="text-[10px] text-slate-500 flex items-center gap-1.5 justify-end mt-0.5">
+                  <span>Credits: <strong className="text-emerald-600 font-mono">${currentUser.marketingCredits.toFixed(2)}</strong></span>
+                  <span>•</span>
+                  <span>Trial: <strong className="text-amber-600 font-black">{currentUser.trialDaysLeft} days left</strong></span>
+                </div>
+              </div>
+              
+              <button 
+                onClick={handleLogout}
+                className="text-xs text-rose-650 hover:text-rose-500 border-l border-slate-200 pl-3.5 font-black uppercase tracking-wider cursor-pointer transition-all hover:scale-105"
+              >
+                Sign Out
+              </button>
+            </div>
+          )}
 
         </div>
 
@@ -352,6 +510,18 @@ export default function App() {
           >
             <Mail className="w-3.5 h-3.5 shrink-0" />
             <span>📮 Custom Postcards & Credits Hub</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('admin')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black tracking-wider uppercase transition-all duration-300 select-none cursor-pointer ${
+              activeTab === 'admin' 
+                ? 'bg-slate-955 text-amber-500 border-2 border-amber-500 shadow-[0_0_12px_rgba(245,158,11,0.45)]' 
+                : 'bg-slate-50 text-slate-655 hover:bg-slate-100 border border-slate-200 hover:border-slate-350'
+            }`}
+          >
+            <Shield className="w-3.5 h-3.5 shrink-0" />
+            <span>🔑 SaaS Admin HQ</span>
           </button>
 
         </div>
@@ -421,6 +591,16 @@ export default function App() {
             setPostcardOrders={setPostcardOrders}
             triggerNotification={triggerNotification}
             onOpenSignUp={() => triggerNotification("Hold on", "Sign in required to dispatch physical marketing collateral.")}
+          />
+        )}
+
+        {activeTab === 'admin' && (
+          <AdminTab 
+            customers={dbUsers}
+            onToggleCustomerStatus={handleToggleCustomerStatus}
+            onModifyCustomerCredits={handleModifyCustomerCredits}
+            currentUser={currentUser}
+            onAdminLoginStateChange={setIsAdminSession}
           />
         )}
 
